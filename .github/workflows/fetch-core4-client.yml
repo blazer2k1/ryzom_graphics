@@ -1,4 +1,4 @@
-name: Fetch Core4 Client Files
+name: Fetch Core4 Client (Small Files)
 on:
   workflow_dispatch:
 
@@ -29,22 +29,55 @@ jobs:
       - name: Extract installer
         run: |
           7z x ryzomcore4_install.7z -o./ -y
-          echo "--- Extracted ---"
           du -sh . --exclude=.git
 
       - name: Remove files over 100 MB
         run: |
           find . -type f -size +100M -not -path "./.git/*" -print -delete
-          echo "--- After cleanup ---"
           du -sh . --exclude=.git
 
-      - name: Commit extracted files
+      - name: Commit in size-batched pushes
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "actions@github.com"
-          git add -A
-          git commit -m "Add Ryzom Core4 client assets (excluding >100MB files)" || echo "No changes to commit"
-          git push
+
+          BATCH_SIZE=$((1500 * 1024 * 1024))   # 1.5 GB per push
+          current=0
+          batch=0
+          list="/tmp/batch_files.txt"
+          : > "$list"
+
+          # Find all files we want to commit, excluding .git and the workflow itself
+          find . -type f \
+            -not -path "./.git/*" \
+            -not -path "./.github/*" \
+            -not -name "ryzomcore4_install.7z" \
+            | sort | while read -r f; do
+            size=$(stat -c%s "$f")
+            if [ $((current + size)) -gt $BATCH_SIZE ] && [ -s "$list" ]; then
+              echo "=== Committing batch $batch (size: $current) ==="
+              xargs -a "$list" git add --
+              git commit -m "Add Core4 client assets - batch $batch" || true
+              git push || echo "Push batch $batch failed"
+              batch=$((batch + 1))
+              current=0
+              : > "$list"
+            fi
+            echo "$f" >> "$list"
+            current=$((current + size))
+          done
+
+          # Flush the last batch
+          if [ -s "$list" ]; then
+            echo "=== Committing final batch $batch (size: $current) ==="
+            xargs -a "$list" git add --
+            git commit -m "Add Core4 client assets - batch $batch (final)" || true
+            git push || echo "Final push failed"
+          fi
+
+          echo "--- Done ---"
+          git log --oneline | head -20
 
       - name: Cleanup
         if: always()
