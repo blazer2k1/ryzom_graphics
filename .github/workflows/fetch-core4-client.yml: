@@ -1,4 +1,4 @@
-name: Fetch Core4 Client (Small Files)
+name: Fetch Core4 Client Files
 on:
   workflow_dispatch:
 
