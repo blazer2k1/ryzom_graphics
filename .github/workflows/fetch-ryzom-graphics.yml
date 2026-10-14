@@ -1,0 +1,63 @@
+name: Fetch Ryzom Graphics Assets
+on:
+  workflow_dispatch:
+    inputs:
+      target_folder:
+        description: 'Folder inside the archive to extract (e.g. landscape)'
+        required: true
+        default: 'landscape'
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -h
+
+      - name: Download split parts from temp repo
+        run: |
+          curl -L --fail --retry 3 -o part_aa \
+            "https://github.com/blazer2k1/ryzom-assets-storage/releases/download/v1.0/ryzomcore_part_aa"
+          curl -L --fail --retry 3 -o part_ab \
+            "https://github.com/blazer2k1/ryzom-assets-storage/releases/download/v1.0/ryzomcore_part_ab"
+          ls -lh part_aa part_ab
+
+      - name: Reassemble 7z
+        run: |
+          cat part_aa part_ab > ryzomcore_graphics.7z
+          ls -lh ryzomcore_graphics.7z
+          rm -f part_aa part_ab
+
+      - name: Install 7z
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Extract target folder
+        run: |
+          TARGET="${{ github.event.inputs.target_folder }}"
+          echo "Extracting: $TARGET"
+          7z x ryzomcore_graphics.7z "$TARGET/*" -o./extracted/ -y
+          echo "--- Extracted ---"
+          find ./extracted -maxdepth 3 -type d | head -50
+          du -sh ./extracted
+          mv "./extracted/$TARGET" ./
+          rm -rf ./extracted
+
+      - name: Commit extracted files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add "./${{ github.event.inputs.target_folder }}"
+          git commit -m "Add Ryzom assets: ${{ github.event.inputs.target_folder }}" || echo "No changes to commit"
+          git push
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ryzomcore_graphics.7z
