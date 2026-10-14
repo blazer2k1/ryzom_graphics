@@ -1,0 +1,51 @@
+name: Fetch Core4 Client (Small Files)
+on:
+  workflow_dispatch:
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -h
+
+      - name: Download installer from release
+        run: |
+          curl -L --fail --retry 3 -o ryzomcore4_install.7z \
+            "https://github.com/blazer2k1/ryzom-assets-storage/releases/download/core4-v1.0/ryzomcore4_install_7_linux64.7z"
+          ls -lh ryzomcore4_install.7z
+
+      - name: Install 7z
+        run: sudo apt-get update && sudo apt-get install -y p7zip-full
+
+      - name: Extract installer
+        run: |
+          7z x ryzomcore4_install.7z -o./ -y
+          echo "--- Extracted ---"
+          du -sh . --exclude=.git
+
+      - name: Remove files over 100 MB
+        run: |
+          find . -type f -size +100M -not -path "./.git/*" -print -delete
+          echo "--- After cleanup ---"
+          du -sh . --exclude=.git
+
+      - name: Commit extracted files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "Add Ryzom Core4 client assets (excluding >100MB files)" || echo "No changes to commit"
+          git push
+
+      - name: Cleanup
+        if: always()
+        run: rm -f ryzomcore4_install.7z
